@@ -2,13 +2,21 @@ package com.daixinlian.storm.topology;
 
 import com.daixinlian.storm.bolt.MyBolt1;
 import com.daixinlian.storm.bolt.MyBolt2;
-import com.daixinlian.storm.spout.MySpout;
 import org.apache.storm.Config;
 import org.apache.storm.LocalCluster;
 import org.apache.storm.StormSubmitter;
 import org.apache.storm.generated.AlreadyAliveException;
 import org.apache.storm.generated.AuthorizationException;
 import org.apache.storm.generated.InvalidTopologyException;
+import org.apache.storm.hdfs.bolt.HdfsBolt;
+import org.apache.storm.hdfs.bolt.format.DefaultFileNameFormat;
+import org.apache.storm.hdfs.bolt.format.DelimitedRecordFormat;
+import org.apache.storm.hdfs.bolt.format.FileNameFormat;
+import org.apache.storm.hdfs.bolt.format.RecordFormat;
+import org.apache.storm.hdfs.bolt.rotation.FileRotationPolicy;
+import org.apache.storm.hdfs.bolt.rotation.FileSizeRotationPolicy;
+import org.apache.storm.hdfs.bolt.sync.CountSyncPolicy;
+import org.apache.storm.hdfs.bolt.sync.SyncPolicy;
 import org.apache.storm.kafka.*;
 import org.apache.storm.spout.SchemeAsMultiScheme;
 import org.apache.storm.topology.TopologyBuilder;
@@ -44,6 +52,24 @@ public class MyTopology {
 
 		builder.setSpout("myspout",kafkaSpout,3);
 		builder.setBolt("mybolt1",new MyBolt1(),2).shuffleGrouping("myspout");
+
+		// 输出字段分隔符
+		RecordFormat format = new DelimitedRecordFormat().withFieldDelimiter("|");
+
+		// 每1000个tuple同步到HDFS一次
+		SyncPolicy syncPolicy = new CountSyncPolicy(1000);
+
+		// 每个写出文件的大小为100MB
+		FileRotationPolicy rotationPolicy = new FileSizeRotationPolicy(100.0f, FileSizeRotationPolicy.Units.MB);
+
+		// 设置输出目录
+		FileNameFormat fileNameFormat = new DefaultFileNameFormat().withPath(args[0]);
+
+		// 执行HDFS地址
+		HdfsBolt hdfsBolt = new HdfsBolt().withFsUrl("hdfs://node1:8020").withFileNameFormat(fileNameFormat)
+				.withRecordFormat(format).withRotationPolicy(rotationPolicy).withSyncPolicy(syncPolicy);
+
+
 		builder.setBolt("mybolt2",new MyBolt2(),4).fieldsGrouping("mybolt1",new Fields("word"));
 
 		config.setNumWorkers(2);
